@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trino Connection Control Plane</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f6f8fb; color: #1f2a37; }
+    .panel { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 3px 12px rgba(0,0,0,0.08); margin-bottom: 16px; }
+    h1 { margin-top: 0; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 12px; }
+    label { font-size: 13px; color: #4a5565; display: block; margin-bottom: 4px; }
+    input, select, textarea { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ccd5e1; }
+    textarea { min-height: 90px; }
+    button { border: none; border-radius: 8px; padding: 10px 14px; cursor: pointer; margin-right: 8px; }
+    .primary { background: #2563eb; color: white; }
+    .ghost { background: #e6edf9; color: #1d4ed8; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #ebeff5; text-align: left; padding: 10px 6px; }
+    .status { white-space: pre-line; background: #f1f5f9; border-radius: 8px; padding: 8px; }
+  </style>
+</head>
+<body>
+<div class="panel">
+  <h1>Trino 479 连接管控平台</h1>
+  <p>支持连接配置管理、策略校验（可插拔 Validator）与 API 对接。</p>
+</div>
+
+<div class="panel">
+  <h2>新建连接</h2>
+  <div class="grid">
+    <div><label>名称</label><input id="name" value="prod-trino"/></div>
+    <div><label>主机</label><input id="host" value="trino-coordinator.trino.svc.cluster.local"/></div>
+    <div><label>端口</label><input id="port" type="number" value="8080"/></div>
+    <div><label>Catalog</label><input id="catalog" value="hive"/></div>
+    <div><label>Schema</label><input id="schema" value="default"/></div>
+    <div>
+      <label>认证模式</label>
+      <select id="authMode">
+        <option>NONE</option>
+        <option>PASSWORD</option>
+        <option>JWT</option>
+        <option>KERBEROS</option>
+      </select>
+    </div>
+  </div>
+  <div style="margin-top: 12px;">
+    <label>扩展属性 (JSON)</label>
+    <textarea id="attributes">{"owner":"data-platform","cluster":"prod"}</textarea>
+  </div>
+  <div style="margin-top: 12px;">
+    <button class="ghost" onclick="dryRun()">策略预检</button>
+    <button class="primary" onclick="createConnection()">保存连接</button>
+  </div>
+  <p id="status" class="status">等待操作...</p>
+</div>
+
+<div class="panel">
+  <h2>连接列表</h2>
+  <button class="ghost" onclick="loadConnections()">刷新</button>
+  <table>
+    <thead><tr><th>Name</th><th>Host</th><th>Auth</th><th>Catalog.Schema</th><th>操作</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+</div>
+
+<script>
+  function collectPayload() {
+    return {
+      name: document.getElementById('name').value,
+      host: document.getElementById('host').value,
+      port: Number(document.getElementById('port').value),
+      catalog: document.getElementById('catalog').value,
+      schema: document.getElementById('schema').value,
+      authMode: document.getElementById('authMode').value,
+      attributes: JSON.parse(document.getElementById('attributes').value)
+    };
+  }
+
+  async function dryRun() {
+    const res = await fetch('/api/v1/connections/dry-run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectPayload())
+    });
+    document.getElementById('status').textContent = JSON.stringify(await res.json(), null, 2);
+  }
+
+  async function createConnection() {
+    const res = await fetch('/api/v1/connections', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(collectPayload())
+    });
+    document.getElementById('status').textContent = JSON.stringify(await res.json(), null, 2);
+    await loadConnections();
+  }
+
+  async function deleteConnection(id) {
+    await fetch('/api/v1/connections/' + id, { method: 'DELETE' });
+    await loadConnections();
+  }
+
+  async function loadConnections() {
+    const res = await fetch('/api/v1/connections');
+    const list = await res.json();
+    const rows = document.getElementById('rows');
+    rows.innerHTML = '';
+    list.forEach(item => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${item.name}</td><td>${item.host}:${item.port}</td><td>${item.authMode}</td><td>${item.catalog}.${item.schema}</td><td><button class="ghost" onclick="deleteConnection('${item.id}')">删除</button></td>`;
+      rows.appendChild(tr);
+    });
+  }
+
+  loadConnections();
+</script>
+</body>
+</html>
